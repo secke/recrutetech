@@ -7,24 +7,40 @@ from typing import Optional
 import openai
 from openai import AsyncOpenAI
 import asyncio
+import boto3
+from contextlib import closing
 
 
 class SpeechToTextService:
     """
     Service for converting speech to text in real-time
-    Uses OpenAI Whisper API for accurate transcription
+    Uses OpenAI Whisper API or AWS Transcribe for accurate transcription
     """
     
-    def __init__(self, api_key: Optional[str] = None, language: str = "fr"):
+    def __init__(self, api_key: Optional[str] = None, language: str = "fr", provider: str = "openai"):
         """
         Initialize STT service
         
         Args:
-            api_key: OpenAI API key
+            api_key: OpenAI API key (if using OpenAI)
             language: Language code for transcription (fr, en, wo)
+            provider: STT provider (openai, aws)
         """
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.provider = provider
         self.language = language
+        
+        # Map simple language code to AWS language code
+        self.aws_lang_map = {
+            "fr": "fr-FR",
+            "en": "en-US",
+            "wo": "fr-FR"  # Fallback for Wolof as AWS doesn't support it directly yet
+        }
+        
+        if provider == "openai":
+            self.client = AsyncOpenAI(api_key=api_key)
+        elif provider == "aws":
+            from amazon_transcribe.client import TranscribeStreamingClient
+            self.aws_client = TranscribeStreamingClient(region="us-east-1")
     
     async def transcribe_audio(
         self,
@@ -44,20 +60,56 @@ class SpeechToTextService:
             Transcribed text
         """
         try:
-            # Create file-like object from audio data
-            audio_file = io.BytesIO(audio_data)
-            audio_file.name = f"audio.{audio_format}"
+            if self.provider == "openai":
+                # Create file-like object from audio data
+                audio_file = io.BytesIO(audio_data)
+                audio_file.name = f"audio.{audio_format}"
+                
+                # Call Whisper API
+                transcript = await self.client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language=self.language if self.language in ["fr", "en"] else None,
+                    prompt=prompt,
+                    response_format="text"
+                )
+                return transcript.strip()
             
-            # Call Whisper API
-            transcript = await self.client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language=self.language if self.language in ["fr", "en"] else None,
-                prompt=prompt,
-                response_format="text"
-            )
-            
-            return transcript.strip()
+            elif self.provider == "aws":
+                from amazon_transcribe.handlers import TranscriptResultStreamHandler
+                from amazon_transcribe.model import TranscriptEvent
+                
+                # Create a stream from bytes
+                async def audio_stream_generator():
+                    chunk_size = 1024 * 4
+                    for i in range(0, len(audio_data), chunk_size):
+                        yield audio_data[i:i+chunk_size]
+                
+                # Start stream transcription
+                stream = await self.aws_client.start_stream_transcription(
+                    language_code=self.aws_lang_map.get(self.language, "fr-FR"),
+                    media_sample_rate_hz=16000,
+                    media_encoding="ogg-opus" if audio_format == "webm" else "pcm"
+                )
+                
+                # Send audio events
+                async for chunk in audio_stream_generator():
+                    await stream.input_stream.send_audio_event(audio_chunk=chunk)
+                await stream.input_stream.end_stream()
+                
+                # Process results
+                transcript = ""
+                async for event in stream.output_stream:
+                    if isinstance(event, TranscriptEvent):
+                        results = event.transcript.results
+                        for result in results:
+                            if not result.is_partial:
+                                for alt in result.alternatives:
+                                    transcript += alt.transcript
+                
+                return transcript.strip()
+                
+            return ""
         
         except Exception as e:
             print(f"Error transcribing audio: {e}")
@@ -94,6 +146,7 @@ class SpeechToTextService:
                 buffer.extend(chunk)
                 
                 # Transcribe when buffer is large enough
+                # For AWS, we could potentially stream continuously, but for now reuse chunk logic
                 if len(buffer) >= 16000 * chunk_duration:  # Assuming 16kHz sample rate
                     text = await self.transcribe_audio(bytes(buffer))
                     if text:
@@ -144,6 +197,14 @@ class TextToSpeechService:
                 self.client = AsyncElevenLabs(api_key=api_key)
             except ImportError:
                 raise ImportError("Install elevenlabs: pip install elevenlabs")
+        elif provider == "aws":
+            from app.core.config import settings
+            self.client = boto3.client(
+                'polly',
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                region_name=settings.AWS_REGION
+            )
     
     async def synthesize_speech(
         self,
@@ -184,6 +245,40 @@ class TextToSpeechService:
                     model="eleven_multilingual_v2"
                 )
                 return audio
+            
+            elif self.provider == "aws":
+                # AWS Polly implementation
+                try:
+                    response = self.client.synthesize_speech(
+                        Text=text,
+                        OutputFormat='mp3',
+                        VoiceId=voice or 'Joanna',
+                        Engine='neural'
+                    )
+                except self.client.exceptions.EngineNotSupportedException:
+                    # Fallback to standard engine if neural is not supported
+                    print(f"Neural engine not supported for voice {voice}, falling back to standard.")
+                    response = self.client.synthesize_speech(
+                        Text=text,
+                        OutputFormat='mp3',
+                        VoiceId=voice or 'Joanna',
+                        Engine='standard'
+                    )
+                except Exception as e:
+                    # Handle other specific AWS errors or generic fallback
+                    if "does not support the selected engine" in str(e):
+                         response = self.client.synthesize_speech(
+                            Text=text,
+                            OutputFormat='mp3',
+                            VoiceId=voice or 'Joanna',
+                            Engine='standard'
+                        )
+                    else:
+                        raise e
+                
+                if "AudioStream" in response:
+                    with closing(response["AudioStream"]) as stream:
+                        return stream.read()
         
         except Exception as e:
             print(f"Error synthesizing speech: {e}")

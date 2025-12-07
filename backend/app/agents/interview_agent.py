@@ -2,7 +2,8 @@
 AI Interview Agent - Conduit des entretiens techniques autonomes
 """
 from typing import List, Dict, Optional, AsyncGenerator
-from langchain.chat_models import ChatOpenAI, ChatAnthropic
+from langchain_community.chat_models import ChatOpenAI, ChatAnthropic
+from langchain_aws import ChatBedrock
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
@@ -51,6 +52,13 @@ class InterviewAgent:
                 model="claude-sonnet-4-20250514",
                 temperature=0.7,
                 max_tokens=1000
+            )
+        elif llm_provider == "aws" or llm_provider == "bedrock":
+            from app.core.config import settings
+            self.llm = ChatBedrock(
+                model_id=settings.BEDROCK_MODEL_ID,
+                region_name=settings.AWS_REGION,
+                model_kwargs={"temperature": 0.7, "max_tokens": 1000}
             )
         else:
             self.llm = ChatOpenAI(

@@ -10,6 +10,7 @@ from datetime import datetime
 
 from app.agents.interview_agent import InterviewAgent
 from app.services.speech_service import SpeechToTextService, TextToSpeechService
+from app.core.config import settings
 
 
 class InterviewSession:
@@ -30,12 +31,20 @@ class InterviewSession:
             interview_type=interview_config.get("type", "technical"),
             job_role=interview_config.get("job_role", "Software Engineer"),
             required_skills=interview_config.get("skills", []),
-            language=interview_config.get("language", "fr")
+            language=interview_config.get("language", "fr"),
+            llm_provider=interview_config.get("llm_provider", settings.DEFAULT_LLM_PROVIDER)
         )
         
         # Initialize speech services
-        self.stt = SpeechToTextService(language=interview_config.get("language", "fr"))
-        self.tts = TextToSpeechService(provider="openai", voice="nova")
+        # Initialize speech services
+        self.stt = SpeechToTextService(
+            language=interview_config.get("language", "fr"),
+            provider=interview_config.get("stt_provider", settings.DEFAULT_STT_PROVIDER)
+        )
+        self.tts = TextToSpeechService(
+            provider=interview_config.get("tts_provider", settings.DEFAULT_TTS_PROVIDER),
+            voice=interview_config.get("voice", settings.DEFAULT_VOICE)
+        )
         
         # Session state
         self.is_active = False

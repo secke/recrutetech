@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     )
     
     # Database
-    DATABASE_URL: str
+    DATABASE_URL: str = "sqlite:///./test.db"
     REDIS_URL: str = "redis://localhost:6379/0"
     
     # Security
@@ -25,14 +25,21 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
     
     # AI Services
-    OPENAI_API_KEY: str
+    OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     ELEVENLABS_API_KEY: str = ""
     
+    # AWS Configuration
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_REGION: str = "us-west-2"
+    BEDROCK_MODEL_ID: str = "anthropic.claude-3-sonnet-20240229-v1:0"
+    
     # AI Configuration
-    DEFAULT_LLM_PROVIDER: str = "openai"  # "openai" or "anthropic"
-    DEFAULT_TTS_PROVIDER: str = "openai"  # "openai" or "elevenlabs"
-    DEFAULT_VOICE: str = "nova"  # OpenAI: alloy, echo, fable, onyx, nova, shimmer
+    DEFAULT_LLM_PROVIDER: str = "aws"  # "openai", "anthropic", "aws"
+    DEFAULT_STT_PROVIDER: str = "aws"  # "openai", "aws"
+    DEFAULT_TTS_PROVIDER: str = "aws"  # "openai", "elevenlabs", "aws"
+    DEFAULT_VOICE: str = "Lea"  # OpenAI: alloy, echo, fable, onyx, nova, shimmer
     
     # WebRTC / Streaming
     LIVEKIT_API_KEY: str = ""
@@ -41,10 +48,10 @@ class Settings(BaseSettings):
     
     # Storage (for video recordings)
     S3_BUCKET: str = "recrutetech-interviews"
-    S3_ACCESS_KEY: str
-    S3_SECRET_KEY: str
-    S3_ENDPOINT: str
-    S3_REGION: str = "us-east-1"
+    S3_ACCESS_KEY: str = ""
+    S3_SECRET_KEY: str = ""
+    S3_ENDPOINT: str = ""
+    S3_REGION: str = "us-west-2"
     
     # Application
     PROJECT_NAME: str = "RecruteTech AI Interviewer"

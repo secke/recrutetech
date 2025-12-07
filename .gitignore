@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Database
+*.db
+*.sqlite3
+*.sqlite
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node.js
+node_modules/
+jspm_packages/
+.npm
+.eslintcache
+.node_repl_history
+*.tgz
+
+# Frontend build
+frontend/dist/
+frontend/build/
+.next/
+out/
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+.project
+.classpath
+.settings/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+# Audio files generated during tests
+*.mp3
+*.wav
+*.webm
+*.ogg
+
+# Temporary test files (optional, keeping them for now but ignoring their output)
+# backend/test_transcribe.py
+
+# AWS Credentials (redundant with .env but good safety)
+.aws/
+credentials
