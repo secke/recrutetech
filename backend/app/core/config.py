@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     
     # AI Configuration
     DEFAULT_LLM_PROVIDER: str = "aws"  # "openai", "anthropic", "aws"
-    DEFAULT_STT_PROVIDER: str = "aws"  # "openai", "aws"
+    DEFAULT_STT_PROVIDER: str = "openai"  # "openai", "aws" (NOTE: aws streaming has compatibility issues)
     DEFAULT_TTS_PROVIDER: str = "aws"  # "openai", "elevenlabs", "aws"
     DEFAULT_VOICE: str = "Lea"  # OpenAI: alloy, echo, fable, onyx, nova, shimmer
     

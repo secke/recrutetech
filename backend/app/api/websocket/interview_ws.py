@@ -36,13 +36,14 @@ class InterviewSession:
         )
         
         # Initialize speech services
-        # Initialize speech services
         self.stt = SpeechToTextService(
+            api_key=settings.OPENAI_API_KEY,
             language=interview_config.get("language", "fr"),
             provider=interview_config.get("stt_provider", settings.DEFAULT_STT_PROVIDER)
         )
         self.tts = TextToSpeechService(
             provider=interview_config.get("tts_provider", settings.DEFAULT_TTS_PROVIDER),
+            api_key=settings.OPENAI_API_KEY,
             voice=interview_config.get("voice", settings.DEFAULT_VOICE)
         )
         
@@ -189,9 +190,11 @@ class InterviewSession:
     async def send_message(self, message: Dict):
         """Send message to client via WebSocket"""
         try:
-            await self.websocket.send_json(message)
+            if self.is_active:
+                await self.websocket.send_json(message)
         except Exception as e:
             print(f"Error sending message: {e}")
+            self.is_active = False
     
     async def send_error(self, error_message: str):
         """Send error message to client"""
@@ -231,35 +234,43 @@ class InterviewWebSocketManager:
         try:
             # Start interview
             await session.start()
-            
+
             # Listen for messages
             while session.is_active:
-                data = await websocket.receive()
-                
-                if "bytes" in data:
-                    # Handle audio data
-                    await session.handle_audio_chunk(data["bytes"])
-                
-                elif "text" in data:
-                    # Handle text message
-                    message = json.loads(data["text"])
-                    
-                    if message.get("type") == "text_message":
-                        await session.handle_text_message(message["content"])
-                    
-                    elif message.get("type") == "end_interview":
-                        await session.end_interview()
-                        break
-        
-        except WebSocketDisconnect:
-            print(f"Client disconnected: {session_id}")
-        
+                try:
+                    data = await websocket.receive()
+
+                    if "bytes" in data:
+                        # Handle audio data
+                        await session.handle_audio_chunk(data["bytes"])
+
+                    elif "text" in data:
+                        # Handle text message
+                        message = json.loads(data["text"])
+
+                        if message.get("type") == "text_message":
+                            await session.handle_text_message(message["content"])
+
+                        elif message.get("type") == "end_interview":
+                            await session.end_interview()
+                            break
+
+                except WebSocketDisconnect:
+                    print(f"Client disconnected: {session_id}")
+                    session.is_active = False
+                    break
+
         except Exception as e:
             print(f"Error in WebSocket connection: {e}")
-            await session.send_error(str(e))
-        
+            session.is_active = False
+            try:
+                await session.send_error(str(e))
+            except:
+                pass  # Ignore errors when trying to send error messages
+
         finally:
             # Clean up session
+            session.is_active = False
             if session_id in self.active_sessions:
                 del self.active_sessions[session_id]
     

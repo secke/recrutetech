@@ -50,21 +50,25 @@ class SpeechToTextService:
     ) -> str:
         """
         Transcribe audio to text
-        
+
         Args:
             audio_data: Raw audio bytes
             audio_format: Audio format (webm, mp3, wav)
             prompt: Optional prompt to guide transcription
-            
+
         Returns:
             Transcribed text
         """
+        # Validate audio data
+        if not audio_data or len(audio_data) < 1000:  # Minimum size check
+            return ""
+
         try:
             if self.provider == "openai":
                 # Create file-like object from audio data
                 audio_file = io.BytesIO(audio_data)
                 audio_file.name = f"audio.{audio_format}"
-                
+
                 # Call Whisper API
                 transcript = await self.client.audio.transcriptions.create(
                     model="whisper-1",
@@ -74,45 +78,28 @@ class SpeechToTextService:
                     response_format="text"
                 )
                 return transcript.strip()
-            
+
             elif self.provider == "aws":
-                from amazon_transcribe.handlers import TranscriptResultStreamHandler
-                from amazon_transcribe.model import TranscriptEvent
-                
-                # Create a stream from bytes
-                async def audio_stream_generator():
-                    chunk_size = 1024 * 4
-                    for i in range(0, len(audio_data), chunk_size):
-                        yield audio_data[i:i+chunk_size]
-                
-                # Start stream transcription
-                stream = await self.aws_client.start_stream_transcription(
-                    language_code=self.aws_lang_map.get(self.language, "fr-FR"),
-                    media_sample_rate_hz=16000,
-                    media_encoding="ogg-opus" if audio_format == "webm" else "pcm"
-                )
-                
-                # Send audio events
-                async for chunk in audio_stream_generator():
-                    await stream.input_stream.send_audio_event(audio_chunk=chunk)
-                await stream.input_stream.end_stream()
-                
-                # Process results
-                transcript = ""
-                async for event in stream.output_stream:
-                    if isinstance(event, TranscriptEvent):
-                        results = event.transcript.results
-                        for result in results:
-                            if not result.is_partial:
-                                for alt in result.alternatives:
-                                    transcript += alt.transcript
-                
-                return transcript.strip()
-                
+                # AWS Transcribe Streaming has compatibility issues with asyncio
+                # For production, either:
+                # 1. Use OpenAI Whisper for STT (recommended for real-time)
+                # 2. Implement a proper AWS Transcribe Streaming wrapper without wait_for
+                # 3. Use AWS Transcribe batch mode with S3 (too slow for real-time)
+
+                # For now, log a warning and return empty to avoid crashes
+                print("⚠️  AWS STT not configured - please set DEFAULT_STT_PROVIDER=openai in .env and add OPENAI_API_KEY")
+                return ""
+
             return ""
-        
+
+        except asyncio.TimeoutError:
+            print("Transcription timeout - no audio detected")
+            return ""
         except Exception as e:
-            print(f"Error transcribing audio: {e}")
+            # Only log non-timeout errors
+            error_msg = str(e)
+            if "timed out" not in error_msg.lower():
+                print(f"Error transcribing audio: {e}")
             return ""
     
     async def transcribe_streaming(
@@ -122,47 +109,53 @@ class SpeechToTextService:
     ):
         """
         Transcribe audio from a streaming source
-        
+
         Args:
             audio_stream: Async queue of audio chunks
             chunk_duration: Duration of each chunk in seconds
-            
+
         Yields:
             Transcribed text as it becomes available
         """
         buffer = bytearray()
-        
-        while True:
+        consecutive_timeouts = 0
+        max_consecutive_timeouts = 5  # Stop after 5 consecutive timeouts
+
+        while consecutive_timeouts < max_consecutive_timeouts:
             try:
                 # Get audio chunk from stream
                 chunk = await asyncio.wait_for(
                     audio_stream.get(),
                     timeout=chunk_duration
                 )
-                
+
                 if chunk is None:  # End of stream signal
                     break
-                
+
                 buffer.extend(chunk)
-                
+                consecutive_timeouts = 0  # Reset timeout counter
+
                 # Transcribe when buffer is large enough
-                # For AWS, we could potentially stream continuously, but for now reuse chunk logic
                 if len(buffer) >= 16000 * chunk_duration:  # Assuming 16kHz sample rate
                     text = await self.transcribe_audio(bytes(buffer))
                     if text:
                         yield text
                     buffer.clear()
-            
+
             except asyncio.TimeoutError:
-                # Transcribe whatever is in buffer
-                if buffer:
+                consecutive_timeouts += 1
+                # Only transcribe if we have significant audio data
+                if buffer and len(buffer) >= 1000:
                     text = await self.transcribe_audio(bytes(buffer))
                     if text:
                         yield text
+                        consecutive_timeouts = 0  # Reset on successful transcription
                     buffer.clear()
-            
+
             except Exception as e:
-                print(f"Error in streaming transcription: {e}")
+                error_msg = str(e)
+                if "timed out" not in error_msg.lower():
+                    print(f"Error in streaming transcription: {e}")
                 break
 
 

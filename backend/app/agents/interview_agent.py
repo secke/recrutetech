@@ -4,9 +4,9 @@ AI Interview Agent - Conduit des entretiens techniques autonomes
 from typing import List, Dict, Optional, AsyncGenerator
 from langchain_community.chat_models import ChatOpenAI, ChatAnthropic
 from langchain_aws import ChatBedrock
-from langchain.memory import ConversationBufferMemory
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
+from langchain_core.chat_history import InMemoryChatMessageHistory
 import json
 from datetime import datetime
 
@@ -67,11 +67,8 @@ class InterviewAgent:
                 max_tokens=1000
             )
         
-        # Conversation memory
-        self.memory = ConversationBufferMemory(
-            return_messages=True,
-            memory_key="chat_history"
-        )
+        # Conversation memory (using new approach)
+        self.chat_history = InMemoryChatMessageHistory()
         
         # Interview state
         self.current_phase = "introduction"
@@ -167,10 +164,10 @@ Dinga wax ci interview bi pour poste bi {self.job_role}..."""
         }
         
         opening = greetings.get(self.language, greetings["fr"])
-        
+
         # Store in memory
-        self.memory.chat_memory.add_message(AIMessage(content=opening))
-        
+        self.chat_history.add_message(AIMessage(content=opening))
+
         return opening
     
     async def process_candidate_response(
@@ -189,15 +186,15 @@ Dinga wax ci interview bi pour poste bi {self.job_role}..."""
             Dict with AI response, evaluation, and metadata
         """
         # Add candidate response to memory
-        self.memory.chat_memory.add_message(HumanMessage(content=candidate_response))
-        
+        self.chat_history.add_message(HumanMessage(content=candidate_response))
+
         # Build prompt with context
         prompt = ChatPromptTemplate.from_messages([
             SystemMessage(content=self.system_prompt),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}")
         ])
-        
+
         # Add context if available
         context_info = ""
         if context:
@@ -205,19 +202,19 @@ Dinga wax ci interview bi pour poste bi {self.job_role}..."""
                 context_info += f"\n[Analyse vidéo: {context['video_analysis']}]"
             if context.get("code_shared"):
                 context_info += f"\n[Code partagé visible]"
-        
+
         # Generate AI response
         chain = prompt | self.llm
-        
+
         response = await chain.ainvoke({
-            "chat_history": self.memory.chat_memory.messages,
+            "chat_history": self.chat_history.messages,
             "input": candidate_response + context_info
         })
-        
+
         ai_response = response.content
-        
+
         # Store AI response in memory
-        self.memory.chat_memory.add_message(AIMessage(content=ai_response))
+        self.chat_history.add_message(AIMessage(content=ai_response))
         
         # Evaluate response (simplified - can be enhanced with separate evaluation agent)
         evaluation = self._evaluate_response(candidate_response)
@@ -364,7 +361,7 @@ Do you have any questions before we finish?"""
     def _get_transcript(self) -> List[Dict[str, str]]:
         """Get full conversation transcript"""
         transcript = []
-        for message in self.memory.chat_memory.messages:
+        for message in self.chat_history.messages:
             transcript.append({
                 "role": "AI" if isinstance(message, AIMessage) else "Candidate",
                 "content": message.content,
