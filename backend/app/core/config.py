@@ -28,16 +28,21 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     ELEVENLABS_API_KEY: str = ""
-    
+
     # AWS Configuration
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-west-2"
     BEDROCK_MODEL_ID: str = "anthropic.claude-3-sonnet-20240229-v1:0"
-    
+
+    # Google Cloud Configuration
+    GOOGLE_APPLICATION_CREDENTIALS: str = ""  # Path to Google Cloud credentials JSON
+    GOOGLE_PROJECT_ID: str = ""
+
     # AI Configuration
     DEFAULT_LLM_PROVIDER: str = "aws"  # "openai", "anthropic", "aws"
-    DEFAULT_STT_PROVIDER: str = "openai"  # "openai", "aws" (NOTE: aws streaming has compatibility issues)
+    DEFAULT_STT_PROVIDER: str = "google"  # "google", "openai", "aws"
+    STT_FALLBACK_PROVIDER: str = "openai"  # Fallback if primary STT fails
     DEFAULT_TTS_PROVIDER: str = "aws"  # "openai", "elevenlabs", "aws"
     DEFAULT_VOICE: str = "Lea"  # OpenAI: alloy, echo, fable, onyx, nova, shimmer
     

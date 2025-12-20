@@ -18,16 +18,22 @@ const InterviewInterface = () => {
 
             if (lastMsg.type === 'ai_response') {
                 // Add to transcript
-                setTranscript(prev => [...prev, { role: 'ai', text: lastMsg.ai_response }]);
+                setTranscript(prev => [...prev, { role: 'ai', text: lastMsg.text }]);
 
-                // Play audio if available (assuming it's sent as base64 or hex in JSON, or handled separately)
-                // Note: The backend currently sends "audio" field in JSON for ai_response?
-                // Let's check backend logic. It sends:
-                // {"type": "ai_response", "ai_response": "...", "evaluation": ...}
-                // It does NOT seem to send audio in the JSON in the current code?
-                // Wait, speech_service returns bytes. 
-                // We need to verify how backend sends audio.
-                // For now, let's display text.
+                // Play audio if available (hex-encoded audio data)
+                if (lastMsg.audio) {
+                    try {
+                        // Convert hex string to binary
+                        const hexString = lastMsg.audio;
+                        const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                        const audioBlob = new Blob([bytes], { type: 'audio/mpeg' });
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        const audio = new Audio(audioUrl);
+                        audio.play().catch(err => console.error('Error playing audio:', err));
+                    } catch (err) {
+                        console.error('Error processing audio:', err);
+                    }
+                }
             } else if (lastMsg.type === 'transcription') {
                 setTranscript(prev => [...prev, { role: 'user', text: lastMsg.text }]);
             }

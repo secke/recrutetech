@@ -88,3 +88,5 @@ Thumbs.db
 # AWS Credentials (redundant with .env but good safety)
 .aws/
 credentials
+google-credentials*
+

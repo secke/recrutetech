@@ -17,27 +17,63 @@ class SpeechToTextService:
     Uses OpenAI Whisper API or AWS Transcribe for accurate transcription
     """
     
-    def __init__(self, api_key: Optional[str] = None, language: str = "fr", provider: str = "openai"):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        language: str = "fr",
+        provider: str = "google",
+        google_credentials: Optional[str] = None,
+        fallback_provider: Optional[str] = "openai"
+    ):
         """
         Initialize STT service
-        
+
         Args:
-            api_key: OpenAI API key (if using OpenAI)
+            api_key: OpenAI API key (if using OpenAI as primary or fallback)
             language: Language code for transcription (fr, en, wo)
-            provider: STT provider (openai, aws)
+            provider: STT provider (google, openai, aws)
+            google_credentials: Path to Google Cloud credentials JSON file
+            fallback_provider: Fallback provider if primary fails
         """
         self.provider = provider
+        self.fallback_provider = fallback_provider
         self.language = language
-        
-        # Map simple language code to AWS language code
+
+        # Map simple language code to various providers
+        self.google_lang_map = {
+            "fr": "fr-FR",
+            "en": "en-US",
+            "wo": "fr-FR"  # Fallback for Wolof
+        }
+
         self.aws_lang_map = {
             "fr": "fr-FR",
             "en": "en-US",
-            "wo": "fr-FR"  # Fallback for Wolof as AWS doesn't support it directly yet
+            "wo": "fr-FR"
         }
-        
-        if provider == "openai":
-            self.client = AsyncOpenAI(api_key=api_key)
+
+        # Initialize primary provider
+        if provider == "google":
+            try:
+                from google.cloud import speech_v1
+                import os
+
+                # Set credentials if provided
+                if google_credentials:
+                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = google_credentials
+
+                self.google_client = speech_v1.SpeechClient()
+            except Exception as e:
+                print(f"⚠️  Failed to initialize Google STT: {e}")
+                print(f"Falling back to {fallback_provider}")
+                self.provider = fallback_provider
+
+        if provider == "openai" or fallback_provider == "openai":
+            if api_key:
+                self.openai_client = AsyncOpenAI(api_key=api_key)
+            else:
+                self.openai_client = None
+
         elif provider == "aws":
             from amazon_transcribe.client import TranscribeStreamingClient
             self.aws_client = TranscribeStreamingClient(region="us-east-1")
@@ -64,20 +100,75 @@ class SpeechToTextService:
             return ""
 
         try:
-            if self.provider == "openai":
-                # Create file-like object from audio data
-                audio_file = io.BytesIO(audio_data)
-                audio_file.name = f"audio.{audio_format}"
+            # Try primary provider
+            if self.provider == "google":
+                try:
+                    from google.cloud import speech_v1
 
-                # Call Whisper API
-                transcript = await self.client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language=self.language if self.language in ["fr", "en"] else None,
-                    prompt=prompt,
-                    response_format="text"
-                )
-                return transcript.strip()
+                    # Configure audio settings
+                    audio = speech_v1.RecognitionAudio(content=audio_data)
+
+                    # Determine encoding from format
+                    encoding_map = {
+                        "webm": speech_v1.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+                        "mp3": speech_v1.RecognitionConfig.AudioEncoding.MP3,
+                        "wav": speech_v1.RecognitionConfig.AudioEncoding.LINEAR16,
+                        "ogg": speech_v1.RecognitionConfig.AudioEncoding.OGG_OPUS,
+                    }
+
+                    # Google Cloud requires explicit sample rate for OPUS
+                    # OPUS typically uses 48000 Hz for webm, but can vary
+                    # We'll use 48000 as default for WEBM/OGG OPUS
+                    encoding = encoding_map.get(audio_format, speech_v1.RecognitionConfig.AudioEncoding.WEBM_OPUS)
+
+                    config_params = {
+                        "encoding": encoding,
+                        "language_code": self.google_lang_map.get(self.language, "fr-FR"),
+                        "enable_automatic_punctuation": True,
+                    }
+
+                    # Set appropriate sample rate based on format
+                    if audio_format in ["webm", "ogg"]:
+                        # OPUS in WebM typically uses 48kHz
+                        config_params["sample_rate_hertz"] = 48000
+                    else:
+                        # WAV, MP3 typically use 16kHz for speech
+                        config_params["sample_rate_hertz"] = 16000
+
+                    config = speech_v1.RecognitionConfig(**config_params)
+
+                    # Perform transcription (synchronous call, wrapped in async)
+                    response = await asyncio.to_thread(
+                        self.google_client.recognize,
+                        config=config,
+                        audio=audio
+                    )
+
+                    # Extract transcript
+                    transcript = ""
+                    for result in response.results:
+                        transcript += result.alternatives[0].transcript
+
+                    if transcript.strip():
+                        print(f"✅ Google STT success: '{transcript.strip()[:50]}...'")
+                        return transcript.strip()
+
+                    # If empty, try fallback
+                    if self.fallback_provider and transcript.strip() == "":
+                        print(f"⚠️  Google STT returned empty (audio size: {len(audio_data)} bytes, format: {audio_format})")
+                        print(f"Trying {self.fallback_provider} fallback...")
+                        return await self._transcribe_with_fallback(audio_data, audio_format, prompt)
+
+                    return transcript.strip()
+
+                except Exception as e:
+                    print(f"Google STT error: {e}, trying fallback")
+                    if self.fallback_provider:
+                        return await self._transcribe_with_fallback(audio_data, audio_format, prompt)
+                    return ""
+
+            elif self.provider == "openai":
+                return await self._transcribe_openai(audio_data, audio_format, prompt)
 
             elif self.provider == "aws":
                 # AWS Transcribe Streaming has compatibility issues with asyncio
@@ -101,7 +192,47 @@ class SpeechToTextService:
             if "timed out" not in error_msg.lower():
                 print(f"Error transcribing audio: {e}")
             return ""
-    
+
+    async def _transcribe_openai(
+        self,
+        audio_data: bytes,
+        audio_format: str = "webm",
+        prompt: Optional[str] = None
+    ) -> str:
+        """Transcribe using OpenAI Whisper"""
+        try:
+            if not self.openai_client:
+                print("⚠️  OpenAI client not initialized")
+                return ""
+
+            # Create file-like object from audio data
+            audio_file = io.BytesIO(audio_data)
+            audio_file.name = f"audio.{audio_format}"
+
+            # Call Whisper API
+            transcript = await self.openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language=self.language if self.language in ["fr", "en"] else None,
+                prompt=prompt,
+                response_format="text"
+            )
+            return transcript.strip()
+        except Exception as e:
+            print(f"OpenAI STT error: {e}")
+            return ""
+
+    async def _transcribe_with_fallback(
+        self,
+        audio_data: bytes,
+        audio_format: str = "webm",
+        prompt: Optional[str] = None
+    ) -> str:
+        """Try fallback provider"""
+        if self.fallback_provider == "openai":
+            return await self._transcribe_openai(audio_data, audio_format, prompt)
+        return ""
+
     async def transcribe_streaming(
         self,
         audio_stream: asyncio.Queue,

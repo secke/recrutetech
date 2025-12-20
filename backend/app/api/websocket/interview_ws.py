@@ -39,7 +39,9 @@ class InterviewSession:
         self.stt = SpeechToTextService(
             api_key=settings.OPENAI_API_KEY,
             language=interview_config.get("language", "fr"),
-            provider=interview_config.get("stt_provider", settings.DEFAULT_STT_PROVIDER)
+            provider=interview_config.get("stt_provider", settings.DEFAULT_STT_PROVIDER),
+            google_credentials=settings.GOOGLE_APPLICATION_CREDENTIALS,
+            fallback_provider=settings.STT_FALLBACK_PROVIDER
         )
         self.tts = TextToSpeechService(
             provider=interview_config.get("tts_provider", settings.DEFAULT_TTS_PROVIDER),
@@ -108,13 +110,20 @@ class InterviewSession:
                 "text": candidate_text,
                 "timestamp": datetime.utcnow().isoformat()
             })
-            
+
+            print(f"📝 Transcription sent to client, now calling AI agent...")
+
             # Process with AI agent
             ai_response = await self.agent.process_candidate_response(candidate_text)
-            
+
+            print(f"🤖 AI agent returned response: {ai_response.get('ai_response', '')[:100]}...")
+
             # Convert AI response to speech
+            print(f"🗣️  Converting AI response to speech...")
             ai_audio = await self.tts.synthesize_speech(ai_response["ai_response"])
-            
+
+            print(f"✅ Audio generated ({len(ai_audio)} bytes), sending to client...")
+
             # Send AI response to client
             await self.send_message({
                 "type": "ai_response",
@@ -125,6 +134,8 @@ class InterviewSession:
                 "should_continue": ai_response["should_continue"],
                 "timestamp": datetime.utcnow().isoformat()
             })
+
+            print(f"✅ AI response sent to client successfully!")
             
             # Update activity timestamp
             self.last_activity = datetime.utcnow()

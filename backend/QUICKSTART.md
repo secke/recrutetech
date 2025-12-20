@@ -10,46 +10,64 @@ Les erreurs suivantes ont été corrigées :
 
 ## ⚠️ Action requise : Configuration STT
 
-L'application utilise une architecture hybride optimale :
+L'application utilise une architecture multi-cloud optimale :
 
 | Service | Provider | Status |
 |---------|----------|--------|
 | LLM (Intelligence) | AWS Bedrock (Claude) | ✅ Configuré |
 | TTS (Text-to-Speech) | AWS Polly | ✅ Configuré |
-| STT (Speech-to-Text) | OpenAI Whisper | ⚠️ **Clé API requise** |
+| STT (Speech-to-Text) | **Google Cloud** | ⚠️ **Credentials requises** |
+| STT Fallback | OpenAI Whisper | ✅ Configuré |
 
-### Pourquoi OpenAI pour STT ?
+### Pourquoi Google Cloud pour STT ?
 
-AWS Transcribe Streaming a des problèmes de compatibilité avec asyncio/FastAPI WebSocket. OpenAI Whisper est :
+Google Cloud Speech-to-Text est maintenant le provider principal :
+- ✅ **60 minutes GRATUITES par mois**
+- ✅ **$300 de crédit gratuit** pour 90 jours
 - ✅ Plus rapide pour le temps réel
-- ✅ Meilleure intégration avec asyncio
 - ✅ Très précis (multilingue)
-- ✅ Coût très bas (~$0.006/min)
+- ✅ **Fallback automatique sur OpenAI** si problème
+- ✅ Coût identique à OpenAI (~$0.006/min) mais avec gratuité
 
-## 📝 Configuration en 3 étapes
+## 📝 Configuration RAPIDE (Option 1 : Google Cloud - RECOMMANDÉ)
 
-### Étape 1 : Obtenir une clé API OpenAI
+### Étape 1 : Configurer Google Cloud STT (GRATUIT)
 
-1. Allez sur https://platform.openai.com/api-keys
-2. Créez un compte (ou connectez-vous)
-3. Cliquez sur "Create new secret key"
-4. Copiez la clé (commence par `sk-...`)
+Suivez le guide détaillé : [GOOGLE_STT_SETUP.md](GOOGLE_STT_SETUP.md)
+
+**Résumé rapide** :
+1. Créez un compte Google Cloud (300$ de crédit gratuit)
+2. Activez l'API Speech-to-Text
+3. Créez un Service Account et téléchargez le JSON
+4. Mettez le fichier JSON dans le dossier backend
+5. Installez : `pip install google-cloud-speech`
 
 ### Étape 2 : Configurer le fichier `.env`
 
-Éditez `/home/secke/Desktop/seckeZ01/AI/LLM/hugging-face/recrutetech/backend/.env` :
-
 ```bash
-# Ajoutez votre clé OpenAI ici
-OPENAI_API_KEY=sk-...votre-clé-ici...
+GOOGLE_APPLICATION_CREDENTIALS=/chemin/vers/google-credentials.json
+GOOGLE_PROJECT_ID=votre-project-id
 ```
 
-Le fichier `.env` est déjà pré-configuré avec :
+Le fichier `.env` est pré-configuré avec :
 - `DEFAULT_LLM_PROVIDER=aws` (AWS Bedrock)
-- `DEFAULT_STT_PROVIDER=openai` (OpenAI Whisper)
+- `DEFAULT_STT_PROVIDER=google` (Google Cloud STT)
+- `STT_FALLBACK_PROVIDER=openai` (OpenAI Whisper en backup)
 - `DEFAULT_TTS_PROVIDER=aws` (AWS Polly)
 
 ### Étape 3 : Démarrer l'application
+
+## 📝 Configuration ALTERNATIVE (Option 2 : OpenAI uniquement)
+
+Si vous préférez utiliser uniquement OpenAI (sans Google Cloud) :
+
+1. Modifiez `.env` :
+   ```bash
+   DEFAULT_STT_PROVIDER=openai
+   OPENAI_API_KEY=sk-...votre-clé...
+   ```
+
+2. Démarrez l'application
 
 ```bash
 cd /home/secke/Desktop/seckeZ01/AI/LLM/hugging-face/recrutetech/backend
@@ -84,29 +102,33 @@ TTS Provider: aws       ✅
 ## 📊 Architecture finale
 
 ```
-┌─────────────────────────────────────┐
-│         RecruteTech Stack           │
-├─────────────────────────────────────┤
-│ Frontend:  React/Vue (WebSocket)    │
-│ Backend:   FastAPI (Python)         │
-│                                     │
-│ AI Services:                        │
-│  • LLM:  AWS Bedrock (Claude)       │
-│  • STT:  OpenAI Whisper             │
-│  • TTS:  AWS Polly                  │
-└─────────────────────────────────────┘
+┌──────────────────────────────────────┐
+│   RecruteTech Stack (Multi-Cloud)   │
+├──────────────────────────────────────┤
+│ Frontend:  React/Vue (WebSocket)     │
+│ Backend:   FastAPI (Python)          │
+│                                      │
+│ AI Services:                         │
+│  • LLM:  AWS Bedrock (Claude)        │
+│  • STT:  Google Cloud (primary)      │
+│          OpenAI Whisper (fallback)   │
+│  • TTS:  AWS Polly                   │
+└──────────────────────────────────────┘
 ```
 
 ## 🔧 Dépannage
 
-### Erreur : "AWS STT not configured"
-➜ Ajoutez `OPENAI_API_KEY` dans `.env`
+### Erreur : "Failed to initialize Google STT"
+➜ Vérifiez que `GOOGLE_APPLICATION_CREDENTIALS` pointe vers le bon fichier JSON
+➜ Le système basculera automatiquement sur OpenAI (fallback)
 
-### Erreur : "Invalid API key"
+### Erreur : "Invalid OpenAI API key" (fallback)
 ➜ Vérifiez que la clé commence par `sk-` et est valide
+➜ Ou configurez uniquement Google Cloud sans fallback
 
-### Erreur : "AWS Transcribe timeout"
-➜ Normal si STT provider est toujours `aws` - changez en `openai`
+### Message : "Google STT returned empty, trying openai fallback"
+➜ Normal - le système bascule automatiquement sur le fallback
+➜ Vérifiez le format de l'audio (webm, mp3 recommandés)
 
 ### WebSocket se déconnecte
 ➜ Vérifiez les logs pour voir si c'est le frontend ou le backend
@@ -119,16 +141,25 @@ TTS Provider: aws       ✅
 
 ## 💰 Coûts estimés
 
-Pour un MVP/prototype avec ~100 interviews de test :
+Pour un MVP/prototype avec ~100 interviews de test (50h d'audio) :
 
-| Service | Coût/mois estimé |
-|---------|-----------------|
+### Avec Google Cloud (RECOMMANDÉ)
+| Service | Coût/mois |
+|---------|-----------|
 | AWS Bedrock (Claude) | ~$10-20 |
-| OpenAI Whisper (STT) | ~$5-10 |
+| **Google Cloud STT** | **GRATUIT** (60 min gratuits/mois) |
 | AWS Polly (TTS) | ~$5 |
-| **Total** | **~$20-35/mois** |
+| **Total** | **~$15-25/mois** |
 
-Très abordable pour un prototype/MVP ! 🎉
+### Avec OpenAI uniquement
+| Service | Coût/mois |
+|---------|-----------|
+| AWS Bedrock (Claude) | ~$10-20 |
+| OpenAI Whisper (STT) | ~$18 (3000 min × $0.006) |
+| AWS Polly (TTS) | ~$5 |
+| **Total** | **~$33-43/mois** |
+
+💡 **Google Cloud économise ~$18/mois** + $300 de crédit gratuit initial ! 🎉
 
 ## ✨ Prochaines étapes
 
