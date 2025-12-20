@@ -58,8 +58,13 @@ class InterviewAgent:
             self.llm = ChatBedrock(
                 model_id=settings.BEDROCK_MODEL_ID,
                 region_name=settings.AWS_REGION,
-                model_kwargs={"temperature": 0.7, "max_tokens": 1000}
+                model_kwargs={
+                    "temperature": 0.7,
+                    "max_tokens": 1000,
+                    "system": self._build_system_prompt()  # Pass system prompt here for Bedrock
+                }
             )
+            self.llm_provider = "aws"
         else:
             self.llm = ChatOpenAI(
                 model="gpt-4-turbo-preview",
@@ -69,15 +74,19 @@ class InterviewAgent:
         
         # Conversation memory (using new approach)
         self.chat_history = InMemoryChatMessageHistory()
-        
+
         # Interview state
         self.current_phase = "introduction"
         self.questions_asked = []
         self.evaluation_scores = {}
         self.start_time = datetime.utcnow()
-        
-        # Build system prompt
-        self.system_prompt = self._build_system_prompt()
+
+        # Build system prompt (if not AWS, we'll use it in prompt template)
+        if not hasattr(self, 'llm_provider') or self.llm_provider != "aws":
+            self.system_prompt = self._build_system_prompt()
+        else:
+            # For AWS, system prompt is already set in model_kwargs
+            self.system_prompt = None
     
     def _build_system_prompt(self) -> str:
         """Build system prompt based on interview configuration"""
@@ -188,13 +197,6 @@ Dinga wax ci interview bi pour poste bi {self.job_role}..."""
         # Add candidate response to memory
         self.chat_history.add_message(HumanMessage(content=candidate_response))
 
-        # Build prompt with context
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=self.system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{input}")
-        ])
-
         # Add context if available
         context_info = ""
         if context:
@@ -203,13 +205,54 @@ Dinga wax ci interview bi pour poste bi {self.job_role}..."""
             if context.get("code_shared"):
                 context_info += f"\n[Code partagé visible]"
 
-        # Generate AI response
-        chain = prompt | self.llm
+        # Build prompt differently for AWS Bedrock vs other providers
+        if hasattr(self, 'llm_provider') and self.llm_provider == "aws":
+            # For AWS Bedrock, system prompt is in model_kwargs, don't include in messages
+            # Also, Bedrock requires first message to be from user, so skip AI opening message
+            history_for_bedrock = []
+            for i, msg in enumerate(self.chat_history.messages[:-1]):  # Exclude just-added message
+                # Skip the first AI message (opening greeting) to ensure first message is from user
+                if i == 0 and isinstance(msg, AIMessage):
+                    continue
+                history_for_bedrock.append(msg)
 
-        response = await chain.ainvoke({
-            "chat_history": self.chat_history.messages,
-            "input": candidate_response + context_info
-        })
+            print(f"🤖 AWS Bedrock: Processing candidate message")
+            print(f"   Total messages in history: {len(self.chat_history.messages)}")
+            print(f"   Filtered history length: {len(history_for_bedrock)}")
+            print(f"   Candidate input: '{candidate_response[:100]}...'")
+
+            prompt = ChatPromptTemplate.from_messages([
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", "{input}")
+            ])
+
+            print(f"   Calling Bedrock with input size: {len(candidate_response)} chars")
+            try:
+                response = await (prompt | self.llm).ainvoke({
+                    "chat_history": history_for_bedrock,
+                    "input": candidate_response + context_info
+                })
+                print(f"✅ AWS Bedrock response received: {len(response.content)} chars")
+                print(f"   Response preview: '{response.content[:100]}...'")
+            except Exception as e:
+                print(f"❌ AWS Bedrock error: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+        else:
+            # For OpenAI/Anthropic, include system prompt in messages
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", self.system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", "{input}")
+            ])
+
+            response = await (prompt | self.llm).ainvoke({
+                "chat_history": self.chat_history.messages[:-1],
+                "input": candidate_response + context_info
+            })
+
+
 
         ai_response = response.content
 

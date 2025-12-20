@@ -20,9 +20,10 @@ langchain-community==0.3.5
 langchain-aws==0.2.0
 amazon-transcribe==0.6.2
 
-# Speech Processing
+# Speech Processing (STT)
+google-cloud-speech==2.26.0  # Google Cloud Speech-to-Text (PRIMARY)
 # openai-whisper==20231117  # Local Whisper model (optionnel)
-# Alternative: utiliser OpenAI API directement
+# Alternative: utiliser OpenAI API directement (FALLBACK)
 
 # Text-to-Speech
 elevenlabs==1.9.0
