@@ -13,9 +13,11 @@ redis==5.2.0
 # AI & LLM
 openai==1.54.0
 anthropic==0.39.0
+groq==0.11.0
 langchain==0.3.7
 langchain-openai==0.2.8
 langchain-anthropic==0.3.0
+langchain-groq==0.2.1
 langchain-community==0.3.5
 langchain-aws==0.2.0
 amazon-transcribe==0.6.2

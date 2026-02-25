@@ -23,7 +23,8 @@ class SpeechToTextService:
         language: str = "fr",
         provider: str = "google",
         google_credentials: Optional[str] = None,
-        fallback_provider: Optional[str] = "openai"
+        fallback_provider: Optional[str] = "openai",
+        groq_api_key: Optional[str] = None
     ):
         """
         Initialize STT service
@@ -31,9 +32,10 @@ class SpeechToTextService:
         Args:
             api_key: OpenAI API key (if using OpenAI as primary or fallback)
             language: Language code for transcription (fr, en, wo)
-            provider: STT provider (google, openai, aws)
+            provider: STT provider (google, openai, aws, groq)
             google_credentials: Path to Google Cloud credentials JSON file
             fallback_provider: Fallback provider if primary fails
+            groq_api_key: Groq API key (if using Groq as primary or fallback)
         """
         self.provider = provider
         self.fallback_provider = fallback_provider
@@ -73,6 +75,15 @@ class SpeechToTextService:
                 self.openai_client = AsyncOpenAI(api_key=api_key)
             else:
                 self.openai_client = None
+
+        # Initialize Groq client
+        if provider == "groq" or fallback_provider == "groq":
+            if groq_api_key:
+                from groq import AsyncGroq
+                self.groq_client = AsyncGroq(api_key=groq_api_key)
+            else:
+                print("⚠️  Groq API key not provided")
+                self.groq_client = None
 
         elif provider == "aws":
             from amazon_transcribe.client import TranscribeStreamingClient
@@ -127,13 +138,19 @@ class SpeechToTextService:
                         "enable_automatic_punctuation": True,
                     }
 
-                    # Set appropriate sample rate based on format
+                    # Set appropriate sample rate and channel count based on format
                     if audio_format in ["webm", "ogg"]:
-                        # OPUS in WebM typically uses 48kHz
+                        # OPUS in WebM typically uses 48kHz and 2 channels (stereo)
                         config_params["sample_rate_hertz"] = 48000
-                    else:
-                        # WAV, MP3 typically use 16kHz for speech
+                        config_params["audio_channel_count"] = 2
+                    elif audio_format == "wav":
+                        # WAV from VAD uses 16kHz sample rate, usually mono
                         config_params["sample_rate_hertz"] = 16000
+                        config_params["audio_channel_count"] = 1
+                    else:
+                        # MP3 and others typically use 16kHz for speech
+                        config_params["sample_rate_hertz"] = 16000
+                        config_params["audio_channel_count"] = 1
 
                     config = speech_v1.RecognitionConfig(**config_params)
 
@@ -169,6 +186,9 @@ class SpeechToTextService:
 
             elif self.provider == "openai":
                 return await self._transcribe_openai(audio_data, audio_format, prompt)
+
+            elif self.provider == "groq":
+                return await self._transcribe_groq(audio_data, audio_format, prompt)
 
             elif self.provider == "aws":
                 # AWS Transcribe Streaming has compatibility issues with asyncio
@@ -222,6 +242,122 @@ class SpeechToTextService:
             print(f"OpenAI STT error: {e}")
             return ""
 
+    def _is_likely_hallucination(self, text: str) -> bool:
+        """
+        Detect if transcription is likely a Whisper hallucination.
+
+        Common hallucination patterns:
+        - Very short texts ("Merci", "Effectivement", "...")
+        - Incomplete sentences ending with "..."
+        - Repetitive phrases ("Merci. Merci. Merci.")
+        - Suspicious phrases like "Sous-titrage Société Radio-Canada"
+        - Text that's just punctuation or filler
+        - Random incomplete phrases from noise
+        """
+        if not text or len(text.strip()) == 0:
+            return True
+
+        text_clean = text.strip().lower()
+
+        # Check for very short texts (less than 15 chars, likely noise)
+        if len(text_clean) < 15:
+            print(f"⚠️ Too short ({len(text_clean)} chars): '{text_clean}'")
+            return True
+
+        # Check if text ends with "..." (incomplete hallucination)
+        if text_clean.endswith("...") or text_clean.endswith(".."):
+            print(f"⚠️ Incomplete sentence (ends with ...): '{text_clean}'")
+            return True
+
+        # Check for texts that are just fragments (less than 4 words)
+        words = text_clean.split()
+        if len(words) < 4:
+            print(f"⚠️ Too few words ({len(words)}): '{text_clean}'")
+            return True
+
+        # Check for common French/English hallucination phrases and patterns
+        hallucination_patterns = [
+            "merci",
+            "effectivement",
+            "...",
+            "sous-titrage",
+            "société radio-canada",
+            "thank you",
+            "thanks for watching",
+            "subscribe",
+            "développer en",
+            "en tant que",
+            "pour aussi",
+        ]
+
+        # If the entire text is just a hallucination pattern
+        for pattern in hallucination_patterns:
+            if text_clean == pattern or text_clean.startswith(pattern + " "):
+                print(f"⚠️ Matches hallucination pattern '{pattern}': '{text_clean}'")
+                return True
+
+        # Check for excessive repetition (same word 3+ times)
+        if len(words) > 0:
+            word_counts = {}
+            for word in words:
+                if len(word) > 2:  # Skip very short words
+                    word_counts[word] = word_counts.get(word, 0) + 1
+
+            # If any word appears more than 2 times in a short text, likely hallucination
+            if len(word_counts) > 0 and max(word_counts.values()) > 2 and len(words) < 15:
+                print(f"⚠️ Excessive repetition detected: '{text_clean}'")
+                return True
+
+        # Check if text contains mostly prepositions/articles (common in hallucinations)
+        filler_words = ['de', 'le', 'la', 'les', 'un', 'une', 'des', 'en', 'à', 'pour', 'dans', 'sur', 'd', 'l']
+        content_words = [w for w in words if w not in filler_words and len(w) > 2]
+
+        # If more than 60% are filler words, likely hallucination
+        if len(words) > 0 and len(content_words) / len(words) < 0.4:
+            print(f"⚠️ Too many filler words ({len(content_words)}/{len(words)}): '{text_clean}'")
+            return True
+
+        return False
+
+    async def _transcribe_groq(
+        self,
+        audio_data: bytes,
+        audio_format: str = "webm",
+        prompt: Optional[str] = None
+    ) -> str:
+        """Transcribe using Groq Whisper (whisper-large-v3)"""
+        try:
+            if not self.groq_client:
+                print("⚠️  Groq client not initialized")
+                return ""
+
+            # Create file-like object from audio data
+            audio_file = io.BytesIO(audio_data)
+            audio_file.name = f"audio.{audio_format}"
+
+            # Call Groq Whisper API with whisper-large-v3
+            transcript = await self.groq_client.audio.transcriptions.create(
+                model="whisper-large-v3",
+                file=audio_file,
+                language=self.language if self.language in ["fr", "en"] else None,
+                prompt=prompt,
+                response_format="text",
+                temperature=0.0  # Deterministic transcription
+            )
+
+            if transcript and transcript.strip():
+                # Filter out likely hallucinations
+                if self._is_likely_hallucination(transcript.strip()):
+                    print(f"⚠️ Filtered hallucination: '{transcript.strip()}'")
+                    return ""
+
+                print(f"✅ Groq STT success: '{transcript.strip()[:50]}...'")
+                return transcript.strip()
+            return ""
+        except Exception as e:
+            print(f"Groq STT error: {e}")
+            return ""
+
     async def _transcribe_with_fallback(
         self,
         audio_data: bytes,
@@ -231,6 +367,8 @@ class SpeechToTextService:
         """Try fallback provider"""
         if self.fallback_provider == "openai":
             return await self._transcribe_openai(audio_data, audio_format, prompt)
+        elif self.fallback_provider == "groq":
+            return await self._transcribe_groq(audio_data, audio_format, prompt)
         return ""
 
     async def transcribe_streaming(

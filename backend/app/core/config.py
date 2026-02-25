@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     ELEVENLABS_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
 
     # AWS Configuration
     AWS_ACCESS_KEY_ID: str = ""
