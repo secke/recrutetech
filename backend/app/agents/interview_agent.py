@@ -4,6 +4,7 @@ AI Interview Agent - Conduit des entretiens techniques autonomes
 from typing import List, Dict, Optional, AsyncGenerator
 from langchain_community.chat_models import ChatOpenAI, ChatAnthropic
 from langchain_aws import ChatBedrock
+from langchain_groq import ChatGroq
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from langchain_core.chat_history import InMemoryChatMessageHistory
@@ -65,6 +66,15 @@ class InterviewAgent:
                 }
             )
             self.llm_provider = "aws"
+        elif llm_provider == "groq":
+            from app.core.config import settings
+            self.llm = ChatGroq(
+                model="llama-3.3-70b-versatile",  # Fast and powerful
+                temperature=0.7,
+                max_tokens=1000,
+                groq_api_key=settings.GROQ_API_KEY
+            )
+            self.llm_provider = "groq"
         else:
             self.llm = ChatOpenAI(
                 model="gpt-4-turbo-preview",
@@ -81,12 +91,16 @@ class InterviewAgent:
         self.evaluation_scores = {}
         self.start_time = datetime.utcnow()
 
+        # Visual context from video analysis
+        self.visual_context = None
+        self.visual_metrics_history = []
+
         # Build system prompt (if not AWS, we'll use it in prompt template)
-        if not hasattr(self, 'llm_provider') or self.llm_provider != "aws":
+        if not hasattr(self, 'llm_provider') or self.llm_provider not in ["aws", "groq"]:
             self.system_prompt = self._build_system_prompt()
         else:
-            # For AWS, system prompt is already set in model_kwargs
-            self.system_prompt = None
+            # For AWS/Groq, system prompt is set differently or in model_kwargs
+            self.system_prompt = self._build_system_prompt() if self.llm_provider == "groq" else None
     
     def _build_system_prompt(self) -> str:
         """Build system prompt based on interview configuration"""
@@ -204,6 +218,11 @@ Dinga wax ci interview bi pour poste bi {self.job_role}..."""
                 context_info += f"\n[Analyse vidéo: {context['video_analysis']}]"
             if context.get("code_shared"):
                 context_info += f"\n[Code partagé visible]"
+
+        # Add visual behavioral context
+        visual_context = self.get_visual_context_for_prompt()
+        if visual_context:
+            context_info += visual_context
 
         # Build prompt differently for AWS Bedrock vs other providers
         if hasattr(self, 'llm_provider') and self.llm_provider == "aws":
@@ -347,12 +366,15 @@ Do you have any questions before we finish?"""
         closing = closing_messages.get(self.language, closing_messages["fr"])
         
         # Generate comprehensive report
+        visual_eval = self.get_aggregated_visual_evaluation()
+
         report = {
             "interview_id": "generated_id",
             "duration_minutes": (datetime.utcnow() - self.start_time).seconds / 60,
             "phases_covered": [self.current_phase],
             "questions_asked": len(self.questions_asked),
             "overall_evaluation": self._generate_overall_evaluation(),
+            "behavioral_evaluation": visual_eval,  # Include visual/behavioral metrics
             "strengths": self._identify_strengths(),
             "areas_for_improvement": self._identify_improvements(),
             "recommendation": self._generate_recommendation(),
@@ -411,3 +433,113 @@ Do you have any questions before we finish?"""
                 "timestamp": datetime.utcnow().isoformat()
             })
         return transcript
+
+    async def update_visual_context(self, metrics: Dict):
+        """
+        Update visual context from video analysis.
+
+        This information is used to:
+        - Enrich the agent's understanding of the candidate's state
+        - Adjust questioning if candidate appears nervous or confused
+        - Include in final evaluation
+
+        Args:
+            metrics: Visual analysis metrics including:
+                - eyeContactRatio: How much the candidate looks at camera
+                - smileRatio: Positive expression indicator
+                - attentionRatio: Focus and engagement
+                - indicators: confidence, engagement, nervousness scores
+        """
+        self.visual_context = metrics
+        self.visual_metrics_history.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            **metrics
+        })
+
+        # Keep only last 50 measurements
+        if len(self.visual_metrics_history) > 50:
+            self.visual_metrics_history = self.visual_metrics_history[-50:]
+
+    def get_visual_context_for_prompt(self) -> str:
+        """
+        Generate a text description of current visual context for the LLM.
+
+        Returns:
+            String describing the candidate's observed behavioral state
+        """
+        if not self.visual_context:
+            return ""
+
+        indicators = self.visual_context.get("indicators", {})
+        confidence = indicators.get("confidence", 0.5)
+        engagement = indicators.get("engagement", 0.5)
+        nervousness = indicators.get("nervousness", 0.3)
+        eye_contact = self.visual_context.get("eyeContactRatio", 0.5)
+
+        observations = []
+
+        # Interpret metrics into natural language
+        if confidence < 0.3:
+            observations.append("Le candidat semble peu confiant")
+        elif confidence > 0.7:
+            observations.append("Le candidat montre une bonne confiance")
+
+        if nervousness > 0.6:
+            observations.append("Le candidat paraît nerveux")
+        elif nervousness < 0.3:
+            observations.append("Le candidat est calme et posé")
+
+        if engagement < 0.3:
+            observations.append("Le candidat semble distrait")
+        elif engagement > 0.7:
+            observations.append("Le candidat est très engagé")
+
+        if eye_contact < 0.3:
+            observations.append("Peu de contact visuel avec la caméra")
+        elif eye_contact > 0.7:
+            observations.append("Bon contact visuel")
+
+        if not observations:
+            return ""
+
+        return f"\n[Observation comportementale: {'. '.join(observations)}]"
+
+    def get_aggregated_visual_evaluation(self) -> Dict:
+        """
+        Calculate aggregated visual metrics for final evaluation.
+
+        Returns:
+            Dict with averaged behavioral scores
+        """
+        if not self.visual_metrics_history:
+            return {}
+
+        count = len(self.visual_metrics_history)
+
+        # Average basic metrics
+        avg_eye_contact = sum(m.get("eyeContactRatio", 0) for m in self.visual_metrics_history) / count
+        avg_attention = sum(m.get("attentionRatio", 0) for m in self.visual_metrics_history) / count
+
+        # Average behavioral indicators
+        indicators_sum = {"confidence": 0, "engagement": 0, "nervousness": 0}
+        indicators_count = 0
+
+        for m in self.visual_metrics_history:
+            if m.get("indicators"):
+                for key in indicators_sum:
+                    indicators_sum[key] += m["indicators"].get(key, 0)
+                indicators_count += 1
+
+        if indicators_count > 0:
+            indicators_avg = {k: v / indicators_count for k, v in indicators_sum.items()}
+        else:
+            indicators_avg = indicators_sum
+
+        return {
+            "eye_contact_score": round(avg_eye_contact * 10, 1),  # Convert to 0-10 scale
+            "attention_score": round(avg_attention * 10, 1),
+            "confidence_score": round(indicators_avg.get("confidence", 0) * 10, 1),
+            "engagement_score": round(indicators_avg.get("engagement", 0) * 10, 1),
+            "composure_score": round((1 - indicators_avg.get("nervousness", 0)) * 10, 1),  # Inverse of nervousness
+            "sample_count": count
+        }
