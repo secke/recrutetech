@@ -1,57 +1,67 @@
-import { useEffect, useState } from 'react';
-import Navbar from './components/layout/Navbar';
-import Footer from './components/layout/Footer';
-import LandingPage from './components/pages/LandingPage';
-import DashboardPage from './components/pages/DashboardPage';
-import JobsPage from './components/pages/JobsPage';
-import ResultsPage from './components/pages/ResultsPage';
-import InterviewInterface from './components/InterviewInterface';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './components/TweaksPanel';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { CandidateProvider } from './context/CandidateContext';
+import { Landing } from './screens/Landing';
+import { ScreeningEntry } from './screens/ScreeningEntry';
+import { PreInterview } from './screens/PreInterview';
+import { LiveInterview } from './screens/LiveInterview';
+import { Summary } from './screens/Summary';
+import { HRDashboard } from './screens/HRDashboard';
+import { HRDetail } from './screens/HRDetail';
+import { InterviewConfig } from './screens/InterviewConfig';
 
-const ROUTES = ['home', 'jobs', 'dashboard', 'results', 'interview'];
-
-const getInitialRoute = () => {
-    const hash = window.location.hash.replace('#', '');
-    return ROUTES.includes(hash) ? hash : 'home';
-};
+const DEFAULTS = { language: 'fr', theme: 'light' };
 
 function App() {
-    const [route, setRoute] = useState(getInitialRoute);
+  const { values, set } = useTweaks(DEFAULTS);
+  const lang = values.language;
+  const theme = values.theme;
 
-    useEffect(() => {
-        const onHashChange = () => setRoute(getInitialRoute());
-        window.addEventListener('hashchange', onHashChange);
-        return () => window.removeEventListener('hashchange', onHashChange);
-    }, []);
+  return (
+    <ErrorBoundary>
+    <CandidateProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Landing lang={lang} theme={theme} />} />
 
-    const navigate = (next) => {
-        if (!ROUTES.includes(next)) return;
-        window.location.hash = next;
-        setRoute(next);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+          {/* Candidate screening flow */}
+          <Route path="/screening/:roleToken" element={<ScreeningEntry lang={lang} theme={theme} />} />
+          <Route path="/interviews/:interviewToken/setup" element={<PreInterview lang={lang} theme={theme} />} />
+          <Route path="/interviews/:interviewToken/live" element={<LiveInterview lang={lang} theme={theme} />} />
+          <Route path="/interviews/:interviewToken/done" element={<Summary lang={lang} theme={theme} />} />
 
-    // The interview UI takes the full viewport without chrome
-    if (route === 'interview') {
-        return (
-            <div className="min-h-screen bg-ink-950">
-                <Navbar route={route} onNavigate={navigate} />
-                <InterviewInterface />
-            </div>
-        );
-    }
+          {/* HR */}
+          <Route path="/hr" element={<HRDashboard lang={lang} theme={theme} />} />
+          <Route path="/hr/candidates/:interviewToken" element={<HRDetail lang={lang} theme={theme} />} />
+          <Route path="/hr/templates/new" element={<InterviewConfig lang={lang} theme={theme} />} />
 
-    return (
-        <div className="min-h-screen flex flex-col">
-            <Navbar route={route} onNavigate={navigate} />
-            <main className="flex-1">
-                {route === 'home' && <LandingPage onNavigate={navigate} />}
-                {route === 'jobs' && <JobsPage onNavigate={navigate} />}
-                {route === 'dashboard' && <DashboardPage onNavigate={navigate} />}
-                {route === 'results' && <ResultsPage onNavigate={navigate} />}
-            </main>
-            <Footer />
-        </div>
-    );
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection title={lang === 'fr' ? 'Langue & thème' : 'Language & theme'}>
+          <TweakRadio
+            label={lang === 'fr' ? 'Langue' : 'Language'}
+            value={lang}
+            onChange={(v) => set({ language: v })}
+            options={[{ value: 'fr', label: 'Français' }, { value: 'en', label: 'English' }]}
+          />
+          <TweakRadio
+            label={lang === 'fr' ? 'Thème' : 'Theme'}
+            value={theme}
+            onChange={(v) => set({ theme: v })}
+            options={[
+              { value: 'light', label: lang === 'fr' ? 'Clair' : 'Light' },
+              { value: 'dark', label: lang === 'fr' ? 'Sombre' : 'Dark' },
+            ]}
+          />
+        </TweakSection>
+      </TweaksPanel>
+    </CandidateProvider>
+    </ErrorBoundary>
+  );
 }
 
 export default App;
