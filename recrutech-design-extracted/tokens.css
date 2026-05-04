@@ -1,0 +1,164 @@
+/* RecruteTech / Aria — warm & human design tokens */
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
+
+:root {
+  /* Warm palette */
+  --bg: #FBF7F2;
+  --bg-deep: #F5EEE3;
+  --surface: #FFFFFF;
+  --surface-raised: #FFFDFA;
+  --ink: #1F1B16;
+  --ink-2: #3A342D;
+  --muted: #6B635A;
+  --muted-2: #8F857A;
+  --border: #E8E0D4;
+  --border-strong: #D6CBBA;
+
+  /* Accents */
+  --terracotta: #E8734A;
+  --terracotta-deep: #C85A34;
+  --terracotta-soft: #F4D9CE;
+  --sage: #2E5D4F;
+  --sage-soft: #D9E5DF;
+  --sand: #EFE5D4;
+  --butter: #F2D9A0;
+  --plum: #6B4A5C;
+
+  /* State */
+  --success: #2E5D4F;
+  --warning: #B8732B;
+  --danger: #B94A3B;
+
+  /* Type */
+  --serif: 'Instrument Serif', Georgia, serif;
+  --sans: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* Radii */
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-xl: 28px;
+  --r-pill: 999px;
+
+  /* Shadow */
+  --shadow-sm: 0 1px 2px rgba(31, 27, 22, 0.04), 0 1px 3px rgba(31, 27, 22, 0.06);
+  --shadow-md: 0 4px 14px rgba(31, 27, 22, 0.06), 0 2px 6px rgba(31, 27, 22, 0.04);
+  --shadow-lg: 0 24px 60px rgba(31, 27, 22, 0.10), 0 8px 20px rgba(31, 27, 22, 0.06);
+}
+
+/* Dark theme overrides (applied to [data-theme="dark"]) */
+[data-theme="dark"] {
+  --bg: #1A1612;
+  --bg-deep: #120F0C;
+  --surface: #231E19;
+  --surface-raised: #2A241E;
+  --ink: #F5EEE3;
+  --ink-2: #E8DFD0;
+  --muted: #A89E90;
+  --muted-2: #80776C;
+  --border: #3A332B;
+  --border-strong: #4A4238;
+  --terracotta-soft: #3E241B;
+  --sage-soft: #1E2D26;
+  --sand: #2E261B;
+}
+
+* { box-sizing: border-box; }
+
+body, .rt-root {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "cv11";
+}
+
+.rt-serif { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; }
+
+/* Utility */
+.rt-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* Buttons */
+.rt-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  padding: 10px 18px;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 180ms ease;
+  white-space: nowrap;
+}
+.rt-btn-primary {
+  background: var(--ink);
+  color: var(--bg);
+}
+.rt-btn-primary:hover { background: var(--ink-2); }
+.rt-btn-accent {
+  background: var(--terracotta);
+  color: #FFF;
+}
+.rt-btn-accent:hover { background: var(--terracotta-deep); }
+.rt-btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--border-strong);
+}
+.rt-btn-ghost:hover { background: var(--surface); }
+
+/* Card */
+.rt-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+/* Focus */
+.rt-focus:focus-visible {
+  outline: 2px solid var(--terracotta);
+  outline-offset: 2px;
+}
+
+/* Aria orb (shared animation) */
+@keyframes aria-breathe {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.04) rotate(3deg); }
+}
+@keyframes aria-morph {
+  0%, 100% { border-radius: 58% 42% 60% 40% / 45% 55% 45% 55%; }
+  33% { border-radius: 42% 58% 45% 55% / 60% 40% 60% 40%; }
+  66% { border-radius: 50% 50% 55% 45% / 55% 45% 50% 50%; }
+}
+.aria-orb-core {
+  animation: aria-morph 7s ease-in-out infinite, aria-breathe 4s ease-in-out infinite;
+}
+
+/* Scrollbar (subtle) */
+.rt-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.rt-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+.rt-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Waveform bars */
+@keyframes wave-bar {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+/* Monaco-ish code */
+.rt-code {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+}
