@@ -89,7 +89,8 @@ export function PreInterview({ lang = 'fr', theme = 'light' }) {
   }, [sharedStreamRef]);
 
   const allReady = camReady && micReady && spkReady && netReady && consent;
-  const start = () => { if (allReady) navigate(`/interviews/${interviewToken}/live`); };
+  // Navigate to CV upload step (optional personalization) before the live interview.
+  const start = () => { if (allReady) navigate(`/interviews/${interviewToken}/cv`); };
 
   if (!role) return null;
 

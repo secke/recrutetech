@@ -21,3 +21,27 @@ def require_hr_api_key(
         return
     if not x_hr_api_key or x_hr_api_key != settings.HR_API_KEY:
         raise HTTPException(401, "Invalid or missing X-HR-API-Key")
+
+
+# ---------------------------------------------------------------------------
+# Admin / hiring manager stub — same key as HR for Wave 1.
+# TODO: replace with role-based JWT claims in Wave 2 (Company/User model).
+# ---------------------------------------------------------------------------
+
+def require_admin_or_hm(
+    x_hr_api_key: str | None = Header(default=None, alias="X-HR-API-Key"),
+) -> str:
+    """Return the caller identity string (stub: 'admin' for Wave 1).
+
+    Enforces the same X-HR-API-Key check as require_hr_api_key.
+    Wave 2 TODO: decode JWT, return user.email, check role in {admin, hm}.
+    """
+    global _warned_dev_bypass
+    if not settings.HR_API_KEY:
+        if not _warned_dev_bypass:
+            print("⚠️  HR_API_KEY not set — HR endpoints are unauthenticated (dev mode)")
+            _warned_dev_bypass = True
+        return "admin"
+    if not x_hr_api_key or x_hr_api_key != settings.HR_API_KEY:
+        raise HTTPException(401, "Invalid or missing X-HR-API-Key")
+    return "admin"

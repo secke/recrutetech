@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import interviews, roles, screenings, webhooks
+from app.api import candidate, cv, interviews, roles, rubrics, screenings, webhooks
 from app.core.config import settings
 from app.db import init_db
 
@@ -43,9 +43,12 @@ def health():
 
 
 app.include_router(roles.router)
+app.include_router(rubrics.router)
 app.include_router(screenings.router)
 app.include_router(interviews.router)
+app.include_router(cv.router)
 app.include_router(webhooks.router)
+app.include_router(candidate.router)
 
 
 if __name__ == "__main__":

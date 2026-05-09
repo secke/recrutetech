@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   STRINGS, Logo, AriaOrb, LiveDot,
-  ClockIcon, SearchIcon, PlusIcon, ChevronRight,
+  ClockIcon, SearchIcon, PlusIcon, ChevronRight, LayersIcon,
 } from '../components/shared';
 import { api } from '../lib/api';
 
@@ -137,10 +137,11 @@ export function HRDashboard({ lang = "fr", theme = "light" }) {
   );
 }
 
-export function SideNav({ lang, active }) {
+export function SideNav({ lang, active, roleId }) {
   const items = [
     { k: "interviews", to: "/hr", label: lang === "fr" ? "Entretiens" : "Interviews", icon: <ClockIcon size={16} /> },
     { k: "configs", to: "/hr/templates/new", label: lang === "fr" ? "Modèles" : "Templates", icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 4v16"/></svg> },
+    { k: "rubrics", to: roleId ? `/hr/roles/${roleId}/rubrics` : "/hr", label: lang === "fr" ? "Rubriques" : "Rubrics", icon: <LayersIcon size={16} /> },
   ];
   return (
     <div style={{ background: "var(--bg-deep)", borderRight: "1px solid var(--border)", padding: "22px 16px", display: "flex", flexDirection: "column" }}>

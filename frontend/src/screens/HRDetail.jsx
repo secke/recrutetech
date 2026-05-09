@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { STRINGS, AriaOrb, ChevronRight, DownloadIcon, CheckIcon } from '../components/shared';
 import { SideNav } from './HRDashboard';
+import { TransparencyPanel } from '../components/TransparencyPanel';
 import { api } from '../lib/api';
 
 export function HRDetail({ lang = "fr", theme = "light" }) {
@@ -11,14 +12,20 @@ export function HRDetail({ lang = "fr", theme = "light" }) {
   const [error, setError] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
 
-  React.useEffect(() => {
+  const loadInterview = React.useCallback(() => {
     let cancelled = false;
+    setLoading(true);
     api.getInterview(interviewToken)
       .then((d) => { if (!cancelled) setIv(d); })
       .catch((e) => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [interviewToken]);
+
+  React.useEffect(() => {
+    const cancel = loadInterview();
+    return cancel;
+  }, [loadInterview]);
 
   const initials = (iv?.candidate_name || "?").split(" ").slice(0, 2).map((s) => s[0] || "").join("").toUpperCase();
   const report = iv?.report || null;
@@ -254,6 +261,17 @@ export function HRDetail({ lang = "fr", theme = "light" }) {
                       </div>
                     </div>
                   </div>
+                )}
+
+                {/* Transparency panel — "Why this score?" */}
+                {report && (
+                  <TransparencyPanel
+                    report={report}
+                    interviewToken={interviewToken}
+                    interview={iv}
+                    lang={lang}
+                    onReload={loadInterview}
+                  />
                 )}
               </>
             )}

@@ -1,5 +1,6 @@
 """Candidate-facing endpoints: open a screening link, start a session."""
 import json
+import logging
 from datetime import datetime
 from typing import List, Optional
 
@@ -7,11 +8,14 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlmodel import Session, select
 
+logger = logging.getLogger(__name__)
+
 from app.core.config import settings
 from app.db import get_session
 from app.models import Interview, Role
 from app.services.elevenlabs_service import get_signed_url
 from app.services.report_service import generate_report_for_interview
+from app.services.rubric_service import compose_aria_prompt, get_active_rubric_for_role
 
 router = APIRouter(prefix="/api/screenings", tags=["screenings"])
 
@@ -72,12 +76,58 @@ async def start_screening(
     if not settings.ELEVENLABS_AGENT_ID:
         raise HTTPException(503, "ElevenLabs agent not configured. Run the bootstrap script.")
 
+    # -----------------------------------------------------------------
+    # Rubric-routing: prefer an active structured rubric over the legacy
+    # Role.system_prompt when one exists.
+    #
+    # Legacy path  (rubric=None):  use role.system_prompt — unchanged behaviour.
+    # Rubric path  (rubric found): compose Aria prompt from rubric_json via
+    #                              rubric_service.compose_aria_prompt(); set
+    #                              interview.rubric_version_used_id so the report
+    #                              service can later fetch and use the same rubric.
+    # -----------------------------------------------------------------
+    active_rubric = get_active_rubric_for_role(session, role.id)
+
+    if active_rubric is not None:
+        try:
+            aria_system_prompt = compose_aria_prompt(active_rubric, cv_parsed=None)
+        except NotImplementedError:
+            # prompt-engineer's compose_aria_prompt_from_rubric not yet published.
+            # Fall back to legacy path and log so we can monitor the gap.
+            aria_system_prompt = role.system_prompt
+            active_rubric = None  # treat as legacy for this session
+            logger.info(
+                "interview.rubric_prompt_fallback",
+                extra={"role_id": role.id, "reason": "compose_aria_prompt_from_rubric not implemented"},
+            )
+    else:
+        aria_system_prompt = role.system_prompt
+
+    if active_rubric is None:
+        logger.info(
+            "interview.legacy_path",
+            extra={"role_id": role.id},
+        )
+
+    # Phase 1 silent CV personalization: in this flow the Interview row is
+    # created here, so cv_text is never present yet. The personalized prompt is
+    # computed later by POST /api/interviews/{token}/cv. Phase 2 needs a flow
+    # split (create-pending → upload-cv → ready-with-signed-url) before the
+    # `interview.personalized_prompt` can be injected here. The settings flag
+    # and hook below are scaffolding so Phase 2 only flips one branch.
+    if settings.CV_PERSONALIZATION_INJECT:
+        logger.info(
+            "interview.cv_personalization.inject_flag_on",
+            extra={"role_id": role.id, "note": "Phase 2 flow restructure required"},
+        )
+
     interview = Interview(
         role_id=role.id,
         candidate_name=payload.candidate_name,
         candidate_email=str(payload.candidate_email),
         status="in_progress",
         started_at=datetime.utcnow(),
+        rubric_version_used_id=active_rubric.id if active_rubric is not None else None,
     )
     session.add(interview)
     session.commit()
@@ -91,7 +141,7 @@ async def start_screening(
         signed_url=signed_url,
         overrides={
             "agent": {
-                "prompt": {"prompt": role.system_prompt},
+                "prompt": {"prompt": aria_system_prompt},
                 "firstMessage": role.first_message,
                 "language": role.language,
             },

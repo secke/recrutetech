@@ -49,5 +49,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "RecruteTech"
     ENVIRONMENT: str = "development"
 
+    # Feature flags — cv-adaptive-personalization skill
+    # Phase 1 silent rollout: when False, the personalized prompt is computed and
+    # persisted to Interview.personalized_prompt but NOT injected into the ElevenLabs
+    # agent override. Flip to True for Phase 2 opt-in (per skill spec rollout phasing).
+    CV_PERSONALIZATION_INJECT: bool = False
+
 
 settings = Settings()
