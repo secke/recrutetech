@@ -91,3 +91,9 @@ credentials
 google-credentials*
 
 extra_files
+
+# Design assets & debug screenshots (keep out of the repo)
+recrutech-design/
+recrutech-design-extracted/
+recrutech-design*.zip
+crash-*.png
